@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "nanogpt"
+version = "0.1.0"
+description = "Chat GPT of the poor, based on https://www.youtube.com/watch?v=kCc8FmEb1nY"
+authors = ["Wellington Bengtson  <wellington.bengtson@gmail.com>"]
+readme = "README.md"
+repository = "https://github.com/wbengtson/nanogpt/"
+keywords = [
+    "nanogpt",
+    "transformers"
+]
+packages = [
+    { include = "nano_gpt" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+torch = "^2.2.1"
+plotly = "^5.20.0"
+
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.1.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[tool.black]
+line-length = 122
+
+[tool.isort]
+profile = "black"
+known_third_party = ["poetry.core"]
+
+[tool.mypy]
+ignore_missing_imports = "True"
