@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
+from importlib.resources import files
 import torch
 import torch.nn.functional as F
 from nano_gpt.tokenizer import tokenize_from_chars
 from nano_gpt.training_set_creator import create_training_set
 from datetime import datetime
 import json
+import nano_gpt
 
 class Model(ABC):
     
@@ -31,6 +33,16 @@ class Model(ABC):
 
 class MultilayerNeuralNetworkProbabilisticLanguageModelBuilder():
 
+    def __init__(self) -> None:
+        self.training_set = None
+        self.block_size = None
+        self.embedding_size = None
+        self.hidden_layer_nb_of_neurons = None
+        self.number_of_training_steps = None
+        self.learning_rate = None
+        self.batch_size = None
+        self.training_set_percentage = None
+        self.generator_seed = None
 
     def with_training_set(self, training_set):
         self.training_set = training_set
@@ -64,11 +76,18 @@ class MultilayerNeuralNetworkProbabilisticLanguageModelBuilder():
         self.training_set_percentage = training_set_percentage
         return self
     
+    def with_generator_seed(self, generator_seed):
+        self.generator_seed = generator_seed
+        return self
+
     def build_and_train(self):
         if self.training_set and self.block_size and self.embedding_size and \
            self.hidden_layer_nb_of_neurons and self.number_of_training_steps and self.learning_rate and \
            self.batch_size and self.training_set_percentage:
-            model = MultilayerNeuralNetworkProbabilisticLanguageModel(self.training_set, self.block_size, self.embedding_size, self.hidden_layer_nb_of_neurons, self.number_of_training_steps, self.learning_rate, self.batch_size, self.training_set_percentage)
+            generator = torch.Generator()
+            if self.generator_seed:
+                generator.manual_seed(self.generator_seed)
+            model = MultilayerNeuralNetworkProbabilisticLanguageModel(self.training_set, self.block_size, self.embedding_size, self.hidden_layer_nb_of_neurons, self.number_of_training_steps, self.learning_rate, self.batch_size, self.training_set_percentage, generator)
             return model
         else:
             raise ValueError("One of the parameters has not been initialized")
@@ -79,29 +98,70 @@ class MultilayerNeuralNetworkProbabilisticLanguageModel(Model):
     '''
         Model being trained
     '''
-    def __init__(self, training_set, block_size, embedding_size, hidden_layer_nb_of_neurons, number_of_training_steps, learning_rate, batch_size, training_set_percentage):
-        with(open(training_set)) as ts:
-            training_set_text = ts.read()
-            words = training_set_text.split(" ")
-            self.training_set = training_set.as_uri()
+    def __init__(self, training_set, block_size, embedding_size, hidden_layer_nb_of_neurons, number_of_training_steps, \
+                 learning_rate, batch_size, training_set_percentage, generator, \
+                 W1=None, W2=None, b1=None, b2=None, C=None, training_start=None, training_end=None, validation_loss=None,
+                 string_to_token_id=None, token_id_to_string=None, training_losses=None):
         
         self.block_size = block_size
         self.embedding_size = embedding_size
         self.hidden_layer_nb_of_neurons = hidden_layer_nb_of_neurons
-
-        self.string_to_token_id, self.token_id_to_string = tokenize_from_chars(words)
         
+        self.generator = generator
         self.training_set_percentage = training_set_percentage
         self.validation_set_percentage = 1 - training_set_percentage
-        self.X_train, self.Y_train, self.X_val, self.Y_val = create_training_set(words, self.block_size, self.string_to_token_id, self.training_set_percentage)
+        
         self.number_of_training_steps = number_of_training_steps
         self.learning_rate = learning_rate
         self.batch_size = batch_size
-        self.training_losses = []
-        self.training_start = datetime.now().isoformat()
-        self.__train()
-        self.training_end = datetime.now().isoformat()
-        self.validation_loss = self.calculate_validation_set_loss()
+        
+        
+
+        if W1 is not None and W2 is not None and b1 is not None and b2 is not None and C is not None:
+            self.W1= W1
+            self.W2 = W2
+            self.b1 = b1
+            self.b2 = b2
+            self.C = C
+            self.training_start = training_start
+            self.training_end = training_end
+            self.validation_loss = torch.tensor(validation_loss)
+            self.string_to_token_id = string_to_token_id
+            self.token_id_to_string = token_id_to_string
+            self.training_losses = training_losses
+            self.training_set = training_set
+        else:
+            training_set_file = files(nano_gpt).joinpath(training_set)
+            with(open(training_set_file)) as ts:
+                training_set_text = ts.read()
+                words = training_set_text.split(" ")
+            self.training_set = training_set_file.as_uri()
+            self.string_to_token_id, self.token_id_to_string = tokenize_from_chars(words)
+            self.X_train, self.Y_train, self.X_val, self.Y_val = create_training_set(words, self.block_size, self.string_to_token_id, self.training_set_percentage)
+            self.training_losses = []
+            self.training_start = datetime.now().isoformat()
+            self.__train()
+            self.training_end = datetime.now().isoformat()
+            self.validation_loss = self.calculate_validation_set_loss()
+
+
+    @classmethod 
+    def from_serialized(cls, serialized_model_location):
+        with(open(serialized_model_location, "r")) as f:
+            model_json = json.loads(f.read())
+        generator = torch.Generator()
+        generator.set_state(torch.ByteTensor(model_json["generator"]))
+        return cls(W1=torch.tensor(model_json["W1"]), b1=torch.tensor(model_json["b1"]), W2=torch.tensor(model_json["W2"]), 
+                   b2=torch.tensor(model_json["b2"]), C=torch.tensor(model_json["C"]), block_size=model_json["block_size"],
+                   training_set=model_json["training_set_file"], embedding_size=model_json["embedding_size"],
+                   hidden_layer_nb_of_neurons=model_json["hidden_layer_nb_of_neurons"],
+                   number_of_training_steps=model_json["number_of_training_steps"],
+                   learning_rate=model_json["learning_rate"], batch_size=model_json["batch_size"],
+                   training_start=model_json["training_start"],training_end=model_json["training_end"],
+                   validation_loss=model_json["validation_loss"], training_set_percentage=model_json["training_set_percentage"],
+                   generator=generator, string_to_token_id=model_json["string_to_token_id"], token_id_to_string=model_json["token_id_to_string"],
+                   training_losses=torch.tensor(model_json["training_losses"]))
+
 
     def serialize(self, output_location):
         output_dict = dict()
@@ -119,8 +179,12 @@ class MultilayerNeuralNetworkProbabilisticLanguageModel(Model):
         output_dict["b1"] = self.b1.tolist()
         output_dict["W2"] = self.W2.tolist()
         output_dict["b2"] = self.b2.tolist()
+        output_dict["C"] = self.C.tolist()
         output_dict["training_losses"] = list(map(lambda x: x.item(), self.training_losses))
         output_dict["validation_loss"] = self.validation_loss.item()
+        output_dict["generator"] = list(map(lambda x: x.item(), self.generator.get_state()))
+        output_dict["string_to_token_id"] = self.string_to_token_id
+        output_dict["token_id_to_string"] = self.token_id_to_string
         with open(output_location, "w") as f:
             f.write(json.dumps(output_dict))
 
@@ -130,24 +194,23 @@ class MultilayerNeuralNetworkProbabilisticLanguageModel(Model):
         embeddings = self.C[token_ids]
         h = torch.tanh(embeddings.view(1, embeddings.shape[0] * embeddings.shape[1]) @ self.W1 + self.b1)
         logits = h @ self.W2 + self.b2
-        print(logits.shape)
         probs = logits / torch.sum(logits)
         max_value_index = torch.argmax(probs)
-        return self.token_id_to_string[max_value_index.item()]
+        return self.token_id_to_string[str(max_value_index.item())]
     
     def __train(self):
         number_of_tokens = len(self.string_to_token_id)
         # Embedding layer -> Matrix of size: number of tokens by the dimension of embeddings
-        self.C = torch.randn((number_of_tokens, self.embedding_size))
+        self.C = torch.randn((number_of_tokens, self.embedding_size), generator=self.generator)
         # Weights hidden layer 1
-        self.W1 = torch.randn((self.embedding_size * self.block_size, self.hidden_layer_nb_of_neurons))
+        self.W1 = torch.randn((self.embedding_size * self.block_size, self.hidden_layer_nb_of_neurons), generator=self.generator)
         # Bias hidden layer 1
-        self.b1 = torch.randn((self.hidden_layer_nb_of_neurons))
+        self.b1 = torch.randn((self.hidden_layer_nb_of_neurons), generator=self.generator)
 
         # Weights hidden layer 2
-        self.W2 = torch.randn((self.hidden_layer_nb_of_neurons, number_of_tokens))
+        self.W2 = torch.randn((self.hidden_layer_nb_of_neurons, number_of_tokens), generator=self.generator)
         # Bias hidden layer 2
-        self.b2 = torch.randn(number_of_tokens)
+        self.b2 = torch.randn(number_of_tokens, generator=self.generator)
 
         parameters = [self.C, self.W1, self.b1, self.W2, self.b2] 
 
@@ -155,7 +218,7 @@ class MultilayerNeuralNetworkProbabilisticLanguageModel(Model):
             p.requires_grad = True
 
         for i in range(self.number_of_training_steps):
-            batch_indexes = torch.randint(0, self.X_train.shape[0], (self.batch_size, ))
+            batch_indexes = torch.randint(0, self.X_train.shape[0], (self.batch_size, ), generator=self.generator)
             probs = self.__forward_pass(self.X_train[batch_indexes], self.C, self.W1, self.b1, self.W2, self.b2)
             loss = self.calculate_loss(probs, self.Y_train[batch_indexes])
             self.training_losses.append(loss)
