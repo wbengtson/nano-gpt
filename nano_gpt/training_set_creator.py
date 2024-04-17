@@ -6,7 +6,7 @@ def create_training_set(words, block_size, string_to_token_id, training_set_perc
     context = [0] * block_size
     random.shuffle(words)
     for w in words:
-        for ch in list(w) + ['.']:
+        for ch in w + '.':
             target_label = string_to_token_id[ch]
             X.append(context)
             Y.append(target_label)

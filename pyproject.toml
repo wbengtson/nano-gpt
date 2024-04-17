@@ -17,6 +17,7 @@ packages = [
 python = ">=3.11"
 torch = "^2.2.1"
 plotly = "^5.20.0"
+pandas = "^2.2.2"
 
 
 [tool.poetry.group.test.dependencies]
