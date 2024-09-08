@@ -3,6 +3,7 @@ from nano_gpt.models import MultilayerNeuralNetworkProbabilisticLanguageModelBui
 
 import nano_gpt
 import json
+import pytest
 
 def test_train():
     training_set_file = files(nano_gpt).joinpath('names.txt')
@@ -11,7 +12,7 @@ def test_train():
                 .with_learning_rate(0.1).with_number_of_training_steps(1000).with_training_set(training_set_file) \
                 .with_generator_seed(42) \
                 .with_training_set_percentage(0.8).build_and_train()
-    assert model.validation_loss.item() == 2.7444448471069336
+    assert model.validation_loss.item() == pytest.approx(2.7444448471069336)
 
 def test_serialize():
     training_set_file = files(nano_gpt).joinpath('names.txt')

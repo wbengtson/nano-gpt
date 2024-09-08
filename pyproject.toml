@@ -14,14 +14,20 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.11"
-torch = "^2.2.1"
+python = ">=3.12"
+torch = [{markers = "sys_platform == 'macos'", url = "http://download.pytorch.org/whl/cpu/torch-2.4.0-cp312-none-macosx_11_0_arm64.whl"}]
 plotly = "^5.20.0"
 pandas = "^2.2.2"
+jupyter = "^1.0.0"
 
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.1.1"
+
+
+[tool.poetry.group.dev.dependencies]
+matplotlib = "^3.9.2"
+numpy = "<2"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
